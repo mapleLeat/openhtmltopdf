@@ -2,6 +2,7 @@ package com.openhtmltopdf.pdfboxout;
 
 import com.openhtmltopdf.css.constants.IdentValue;
 import com.openhtmltopdf.extend.*;
+import com.openhtmltopdf.extend.impl.FSNoOpCacheStore;
 import com.openhtmltopdf.outputdevice.helper.BaseDocument;
 import com.openhtmltopdf.outputdevice.helper.BaseRendererBuilder;
 import com.openhtmltopdf.outputdevice.helper.PageDimensions;
@@ -18,6 +19,12 @@ public class PdfRendererBuilder extends BaseRendererBuilder<PdfRendererBuilder, 
 
 	public PdfRendererBuilder() {
 		super(new PdfRendererBuilderState());
+		
+		for (CacheStore cacheStore : CacheStore.values()) {
+		    // Use the flyweight pattern to initialize all caches with a no-op implementation to
+		    // avoid excessive null handling.
+		    state._caches.put(cacheStore, FSNoOpCacheStore.INSTANCE);
+		}
 	}
 
 	/**
@@ -107,6 +114,34 @@ public class PdfRendererBuilder extends BaseRendererBuilder<PdfRendererBuilder, 
 		state._pdfVersion = version;
 		return this;
 	}
+
+	/**
+	 * Set the PDF/A conformance, typically we use PDF/A-1
+	 * 
+	 * Note: PDF/A documents require fonts to be embedded. So if this is not set to NONE,
+	 * the built-in fonts will not be available and currently any text without a
+	 * specified and embedded font will cause the renderer to crash with an exception.
+	 *
+	 * @param pdfAConformance
+	 * @return
+	 */
+	public PdfRendererBuilder usePdfAConformance(PdfAConformance pdfAConformance) {
+		this.state._pdfAConformance = pdfAConformance;
+		return this;
+	}
+
+	/**
+	 * Sets the color profile, needed for PDF/A conformance.
+	 *
+	 * You can use the sRGB.icc from https://svn.apache.org/viewvc/pdfbox/trunk/examples/src/main/resources/org/apache/pdfbox/resources/pdfa/
+	 *
+	 * @param colorProfile
+	 * @return
+	 */
+	public PdfRendererBuilder useColorProfile(byte[] colorProfile) {
+		this.state._colorProfile = colorProfile;
+		return this;
+	}
 	
 	/**
 	 * By default, this project creates an entirely in-memory <code>PDDocument</code>.
@@ -194,6 +229,30 @@ public class PdfRendererBuilder extends BaseRendererBuilder<PdfRendererBuilder, 
 		state._producer = producer;
 		return this;
 	}
+	
+	/**
+	 * List of caches available.
+	 */
+	public static enum CacheStore {
+	    
+	    /**
+	     * Caches font metrics, based on a combined key of family name, weight and style.
+	     * Using this cache avoids loading fallback fonts if the metrics are already in the cache
+	     * and the previous fonts contain the needed characters.
+	     */
+	    PDF_FONT_METRICS;
+	}
+	
+	/**
+	 * Use a specific cache. Cache values should be thread safe, so provided your cache store itself
+	 * is thread safe can be used accross threads.
+	 * @return this for method chaining.
+	 * @see {@link CacheStore}
+	 */
+	public PdfRendererBuilder useCacheStore(CacheStore which, FSCacheEx<String, FSCacheValue> cache) {
+	    state._caches.put(which, cache);
+	    return this;
+	}
 
 
 	static class AddedFont {
@@ -212,6 +271,26 @@ public class PdfRendererBuilder extends BaseRendererBuilder<PdfRendererBuilder, 
 			this.family = family;
 			this.subset = subset;
 			this.style = style;
+		}
+	}
+
+	/**
+	 * Various level of PDF/A conformance:
+	 *
+	 * PDF/A-1, PDF/A-2 and PDF/A-3
+	 */
+	public enum PdfAConformance {
+                NONE(""),
+		PDF_A_1("A"), PDF_A_2("B"), PDF_A_3("U");
+
+		PdfAConformance(String value) {
+			this.value = value;
+		}
+
+		private final String value;
+		
+		public String getConformanceValue() {
+		    return this.value;
 		}
 	}
 }

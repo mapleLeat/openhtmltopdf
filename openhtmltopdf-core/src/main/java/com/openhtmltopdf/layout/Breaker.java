@@ -20,6 +20,7 @@
  */
 package com.openhtmltopdf.layout;
 
+import com.openhtmltopdf.css.constants.CSSName;
 import com.openhtmltopdf.css.constants.IdentValue;
 import com.openhtmltopdf.css.style.CalculatedStyle;
 import com.openhtmltopdf.extend.FSTextBreaker;
@@ -35,9 +36,13 @@ public class Breaker {
     public static void breakFirstLetter(LayoutContext c, LineBreakContext context,
             int avail, CalculatedStyle style) {
         FSFont font = style.getFSFont(c);
+        float letterSpacing = style.hasLetterSpacing() ?
+                style.getFloatPropertyProportionalWidth(CSSName.LETTER_SPACING, 0, c) :
+                0f;
+        
         context.setEnd(getFirstLetterEnd(context.getMaster(), context.getStart()));
         context.setWidth(c.getTextRenderer().getWidth(
-                c.getFontContext(), font, context.getCalculatedSubstring()));
+                c.getFontContext(), font, context.getCalculatedSubstring()) + (int) letterSpacing);
 
         if (context.getWidth() > avail) {
             context.setNeedsNewLine(true);
@@ -120,6 +125,11 @@ public class Breaker {
             boolean tryToBreakAnywhere) {
     	
     	FSFont font = style.getFSFont(c);
+
+    	float letterSpacing = style.hasLetterSpacing() ?
+    	    style.getFloatPropertyProportionalWidth(CSSName.LETTER_SPACING, 0, c) :
+    	    0f;
+    	
         String currentString = context.getStartSubstring();
         FSTextBreaker iterator = tryToBreakAnywhere ? 
         		characterBreaker.getBreaker(currentString, c.getSharedContext()) :
@@ -135,7 +145,7 @@ public class Breaker {
         while (right > 0 && graphicsLength <= avail) {
             lastGraphicsLength = graphicsLength;
             graphicsLength += c.getTextRenderer().getWidth(
-                    c.getFontContext(), font, currentString.substring(left, right));
+                    c.getFontContext(), font, currentString.substring(left, right)) + ((right - left) * letterSpacing); 
             lastWrap = left;
             left = right;
             right = iterator.next();
