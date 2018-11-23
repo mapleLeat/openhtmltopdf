@@ -26,8 +26,6 @@ import java.io.IOException;
 import java.io.Writer;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Locale;
-
 import org.w3c.dom.Element;
 import org.w3c.dom.css.CSSPrimitiveValue;
 
@@ -46,6 +44,7 @@ import com.openhtmltopdf.layout.BoxBuilder;
 import com.openhtmltopdf.layout.Layer;
 import com.openhtmltopdf.layout.LayoutContext;
 import com.openhtmltopdf.newtable.TableBox;
+import com.openhtmltopdf.render.simplepainter.SimplePainter;
 import com.openhtmltopdf.util.ThreadCtx;
 
 public class PageBox {
@@ -83,6 +82,25 @@ public class PageBox {
     private MarginAreaContainer[] _marginAreas = new MarginAreaContainer[MARGIN_AREA_DEFS.length];
     
     private Element _metadata;
+    
+    private int _basePagePdfPageIndex;
+    private int _shadowPageCount;
+    
+    public void setBasePagePdfPageIndex(int idx) {
+        this._basePagePdfPageIndex = idx;
+    }
+    
+    public void setShadowPageCount(int cnt) {
+        this._shadowPageCount = cnt;
+    }
+    
+    public int getBasePagePdfPageIndex() {
+        return _basePagePdfPageIndex;
+    }
+    
+    public int getShadowPageCount() {
+        return _shadowPageCount;
+    }
     
     public int getWidth(CssContext cssCtx) {
         resolvePageDimensions(cssCtx);
@@ -273,6 +291,66 @@ public class PageBox {
     			getContentHeight(c));
     }
     
+    /**
+     * Get the shadow page (a page inserted to carry cut off content) content area of the layed out document.
+     * For example: If a page one is 100 units high and 150 wide and has a margin of 10 then this will return a
+     * rect(130, 0, 130, 80) for the first shadow page and a rect(260, 0, 130, 80) for the second shadow page
+     * assuming cut-off direction is LTR.
+     * 
+     * For RTL the rects would be rect(-130, 0, 130, 80) and rect(-260, 0, 130, 80).
+     */
+    public Rectangle getDocumentCoordinatesContentBoundsForInsertedPage(CssContext c, int shadowPageNumber) {
+        return new Rectangle(
+                getContentWidth(c) * (shadowPageNumber + 1) * (getCutOffPageDirection() == IdentValue.LTR ? 1 : -1),
+                getPaintingTop(),
+                getContentWidth(c),
+                getContentHeight(c));
+    }
+    
+
+    /**
+     * Returns the number of shadow pages needed for a given x coordinate.
+     * For example if x = 800 and content width = 1000 returns 0 (assumes LTR).
+     * For example if x = 2400 and content width = 900 returns 2 (assumes LTR).
+     */
+    public int getMaxShadowPagesForXPos(CssContext c, int x) {
+        IdentValue dir = getCutOffPageDirection();
+        float fx = (float) x;
+        float fw = (float) getContentWidth(c);
+        
+        if (fw == 0f) {
+            return 0;
+        }
+        
+        if (dir == IdentValue.LTR) { 
+            return (int) (x > 0 ? (Math.ceil(fx / fw) - 1) : 0);
+        }
+        
+        return (int) (x < 0 ? (Math.ceil(Math.abs(fx) / fw)) : 0);
+    }
+    
+    /**
+     * Should shadow pages be inserted for cut off content for this page.
+     */
+    public boolean shouldInsertPages() {
+        return getMaxInsertedPages() > 0;
+    }
+    
+    /**
+     * The maximum number of shadow pages to insert for cut-off content.
+     */
+    public int getMaxInsertedPages() {
+        return getStyle().fsMaxOverflowPages();
+    }
+    
+    /**
+     * @return Either ltr (should insert cut-off content to the right of the page) or
+     * rtl (should insert cut-off content to the left of the page).
+     */
+    public IdentValue getCutOffPageDirection() {
+        return getStyle().getIdent(CSSName.FS_OVERFLOW_PAGES_DIRECTION);
+    }
+    
     public Rectangle getPagedViewClippingBounds(CssContext cssCtx, int additionalClearance) {
         Rectangle result = new Rectangle(
                 additionalClearance + 
@@ -336,14 +414,20 @@ public class PageBox {
     public void paintMarginAreas(RenderingContext c, int additionalClearance, short mode) {
         for (int i = 0; i < MARGIN_AREA_DEFS.length; i++) {
             MarginAreaContainer container = _marginAreas[i];
+      
             if (container != null) {
                 currentMarginAreaContainer = container;
                 TableBox table = _marginAreas[i].getTable();
                 Point p = container.getArea().getPaintingPosition(
                         c, this, additionalClearance, mode);
-                
+
                 c.getOutputDevice().translate(p.x, p.y);
-                table.getLayer().paint(c);
+                if (c.getOutputDevice().isFastRenderer()) {
+                    SimplePainter painter = new SimplePainter(p.x, p.y);
+                    painter.paintLayer(c, table.getLayer());
+                } else {
+                    table.getLayer().paint(c);
+                }
                 c.getOutputDevice().translate(-p.x, -p.y);
             }
         }
@@ -775,5 +859,5 @@ public class PageBox {
             
             return new Point(left, top);
         }
-    } 
+    }
 }

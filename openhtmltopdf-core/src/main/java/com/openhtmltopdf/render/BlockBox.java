@@ -271,7 +271,8 @@ public class BlockBox extends Box implements InlinePaintable {
 
         return result;
     }
-
+    
+    @Override
     public void paintInline(RenderingContext c) {
         if (! getStyle().isVisible(c, this)) {
             return;
@@ -425,6 +426,7 @@ public class BlockBox extends Box implements InlinePaintable {
         return _replacedElement != null;
     }
 
+    @Override
     public void calcCanvasLocation() {
         if (isFloated()) {
             FloatManager manager = _floatedBoxData.getManager();
@@ -468,6 +470,7 @@ public class BlockBox extends Box implements InlinePaintable {
         setAbsY(manager.getMaster().getAbsY() + getY() - offset.y);
     }
 
+    @Override
     public void calcChildLocations() {
         super.calcChildLocations();
 
@@ -583,6 +586,7 @@ public class BlockBox extends Box implements InlinePaintable {
         _replacedElement = replacedElement;
     }
 
+    @Override
     public void reset(LayoutContext c) {
         super.reset(c);
         setTopMarginCalculated(false);
@@ -723,18 +727,24 @@ public class BlockBox extends Box implements InlinePaintable {
             // CLEAN: cast to int
             setLeftMBP((int) margin.left() + (int) border.left() + (int) padding.left());
             setRightMBP((int) padding.right() + (int) border.right() + (int) margin.right());
+            
             if (c.isPrint() && getStyle().isDynamicAutoWidth()) {
                 setContentWidth(calcEffPageRelativeWidth(c));
             } else {
                 setContentWidth((getContainingBlockWidth() - getLeftMBP() - getRightMBP()));
             }
+            
             setHeight(0);
 
             if (! isAnonymous() || (isFromCaptionedTable() && isFloated())) {
                 int pinnedContentWidth = -1;
 
                 if (cssWidth != -1) {
-                    setContentWidth(cssWidth);
+                    if (style.isBorderBox()) {
+                        setBorderBoxWidth(c, cssWidth);
+                    } else {
+                        setContentWidth(cssWidth);
+                    }
                 } else if (getStyle().isAbsolute() || getStyle().isFixed()) {
                     pinnedContentWidth = calcPinnedContentWidth(c);
                     if (pinnedContentWidth != -1) {
@@ -744,7 +754,11 @@ public class BlockBox extends Box implements InlinePaintable {
 
                 int cssHeight = getCSSHeight(c);
                 if (cssHeight != -1) {
-                    setHeight(cssHeight);
+                    if (style.isBorderBox()) {
+                        setBorderBoxHeight(c, cssHeight);
+                    } else {
+                        setHeight(cssHeight);
+                    }
                 }
 
                 //check if replaced
@@ -816,12 +830,6 @@ public class BlockBox extends Box implements InlinePaintable {
     public void layout(LayoutContext c, int contentStart) {
         CalculatedStyle style = getStyle();
         boolean pushedLayer = false;
-        boolean pushedClipBox = false;
-        
-        if (isNeedsClipOnPaint(c)) {
-        	pushedClipBox = true;
-        	c.pushClippingBox(this);
-        }
 
         if (isRoot()) {
         	pushedLayer = true;
@@ -833,7 +841,7 @@ public class BlockBox extends Box implements InlinePaintable {
             	}
             	c.getRootLayer().addPage(c);
             }
-        } else if (style.requiresLayer()) {
+        } else if (style.requiresLayer() && this.getLayer() == null) {
             pushedLayer = true;
             c.pushLayer(this);
         }
@@ -937,10 +945,6 @@ public class BlockBox extends Box implements InlinePaintable {
         if (pushedLayer) {
             c.popLayer();
         }
-        
-        if (pushedClipBox) {
-        	c.popClippingBox();
-        }
     }
 
     protected boolean isAllowHeightToShrink() {
@@ -951,6 +955,10 @@ public class BlockBox extends Box implements InlinePaintable {
         return 0;
     }
 
+    /**
+     * Oh oh! Up to this method height is used to track content height. After this method it is used
+     * to track total layout height! 
+     */
     protected void calcLayoutHeight(
             LayoutContext c, BorderPropertySet border,
             RectPropertySet margin, RectPropertySet padding) {
@@ -970,28 +978,50 @@ public class BlockBox extends Box implements InlinePaintable {
     }
 
     private void applyCSSMinMaxWidth(CssContext c) {
+        int w = getStyle().isBorderBox() ? getBorderBoxWidth(c) : getContentWidth();
+        
         if (! getStyle().isMaxWidthNone()) {
             int cssMaxWidth = getCSSMaxWidth(c);
-            if (getContentWidth() > cssMaxWidth) {
-                setContentWidth(cssMaxWidth);
+            if (w > cssMaxWidth) {
+                if (getStyle().isBorderBox()) {
+                    setBorderBoxWidth(c, cssMaxWidth);
+                } else {
+                    setContentWidth(cssMaxWidth);
+                }
             }
         }
+        
         int cssMinWidth = getCSSMinWidth(c);
-        if (cssMinWidth > 0 && getContentWidth() < cssMinWidth) {
-            setContentWidth(cssMinWidth);
+        if (cssMinWidth > 0 && w < cssMinWidth) {
+            if (getStyle().isBorderBox()) {
+                setBorderBoxWidth(c, cssMinWidth);
+            } else {
+                setContentWidth(cssMinWidth);
+            }
         }
     }
 
     private void applyCSSMinMaxHeight(CssContext c) {
+        int currentHeight = getStyle().isBorderBox() ? getBorderBoxHeight(c) : getHeight();
+        
         if (! getStyle().isMaxHeightNone()) {
             int cssMaxHeight = getCSSMaxHeight(c);
-            if (getHeight() > cssMaxHeight) {
-                setHeight(cssMaxHeight);
+            if (currentHeight > cssMaxHeight) {
+                if (getStyle().isBorderBox()) {
+                    setBorderBoxHeight(c, cssMaxHeight);
+                } else {
+                    setHeight(cssMaxHeight);
+                }
             }
         }
+        
         int cssMinHeight = getCSSMinHeight(c);
-        if (cssMinHeight > 0 && getHeight() < cssMinHeight) {
-            setHeight(cssMinHeight);
+        if (cssMinHeight > 0 && currentHeight < cssMinHeight) {
+            if (getStyle().isBorderBox()) {
+                setBorderBoxHeight(c, cssMinHeight);
+            } else {
+                setHeight(cssMinHeight);
+            }
         }
     }
 
@@ -1843,6 +1873,7 @@ public class BlockBox extends Box implements InlinePaintable {
         }
     }
 
+    @Override
     protected void calcChildPaintingInfo(
             final CssContext c, final PaintingInfo result, final boolean useCache) {
         if (getPersistentBFC() != null) {
@@ -2121,6 +2152,7 @@ public class BlockBox extends Box implements InlinePaintable {
         return flowRoot.isRoot();
     }
 
+    @Override
     public Box getDocumentParent() {
         Box staticEquivalent = getStaticEquivalent();
         if (staticEquivalent != null) {

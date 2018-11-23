@@ -61,7 +61,7 @@ import com.openhtmltopdf.util.XRRuntimeException;
  * when this style is created. A property retrieved by name should always have
  * only one value in this class (e.g. one-one map). Any methods to retrieve
  * property values from an instance of this class require a valid {@link
- * com.openhtmltopdf.layout.Context} be given to it, for some cases of property
+ * com.openhtmltopdf.layout.LayoutContext} be given to it, for some cases of property
  * resolution. Generally, a programmer will not use this class directly, but
  * will retrieve properties using a {@link com.openhtmltopdf.context.StyleReference}
  * implementation.
@@ -171,7 +171,7 @@ public class CalculatedStyle {
 
     /**
      * derives a child style from this style.
-     * <p/>
+     * <br>
      * depends on the ability to return the identical CascadedStyle each time a child style is needed
      *
      * @param matched the CascadedStyle to apply
@@ -1035,6 +1035,10 @@ public class CalculatedStyle {
     public int columnCount() {
     	return (int) asFloat(CSSName.COLUMN_COUNT);
     }
+    
+    public int fsMaxOverflowPages() {
+        return (int) asFloat(CSSName.FS_MAX_OVERFLOW_PAGES);
+    }
 
 	/**
      * Determine if the element is visible. This is normaly the case
@@ -1330,6 +1334,13 @@ public class CalculatedStyle {
 				display != IdentValue.INLINE_TABLE) ||
 				isNonFlowContent();
 	}
+	
+	/**
+	 * @return true for border-box, false for content-box.
+	 */
+    public boolean isBorderBox() {
+        return isIdent(CSSName.BOX_SIZING, IdentValue.BORDER_BOX);
+    }
 	
 	/**
 	 * Aims to get the correct resolved max-width for a box in dots unit.

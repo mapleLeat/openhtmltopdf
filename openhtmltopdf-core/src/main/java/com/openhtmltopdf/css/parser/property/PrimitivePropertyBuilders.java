@@ -1838,4 +1838,31 @@ public class PrimitivePropertyBuilders {
             return ALLOWED;
         }
     }
+    
+    public static class BoxSizing extends SingleIdent {
+        // border-box | content-box
+        private static final BitSet ALLOWED = setFor(
+                new IdentValue[] {
+                        IdentValue.BORDER_BOX, IdentValue.CONTENT_BOX });
+         protected BitSet getAllowed() {
+            return ALLOWED;
+        }
+    }
+    
+    public static class FSMaxOverflowPages extends PlainInteger {
+        @Override
+        protected boolean isNegativeValuesAllowed() {
+            return false;
+        }
+    }
+    
+    public static class FSOverflowPagesDirection extends SingleIdent {
+        private static final BitSet ALLOWED = setFor(new IdentValue[] { IdentValue.LTR, IdentValue.RTL });
+        
+        @Override
+        protected BitSet getAllowed() {
+            return ALLOWED;
+        }
+    }
+    
 }

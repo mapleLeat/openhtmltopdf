@@ -2,8 +2,8 @@ package com.openhtmltopdf.render.displaylist;
 
 import java.awt.Point;
 import java.awt.Rectangle;
-import java.awt.Shape;
 import java.awt.geom.AffineTransform;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 
@@ -19,15 +19,22 @@ import com.openhtmltopdf.render.OperatorClip;
 import com.openhtmltopdf.render.OperatorSetClip;
 import com.openhtmltopdf.render.PageBox;
 import com.openhtmltopdf.render.RenderingContext;
+import com.openhtmltopdf.render.displaylist.DisplayListCollector.CollectFlags;
 import com.openhtmltopdf.render.displaylist.DisplayListContainer.DisplayListPageContainer;
 
 public class DisplayListPainter {
+    
+    private void debugOnly(String msg, Object arg) {
+        //System.out.println(msg + " : " + arg);
+    }
 	
 	private void clip(RenderingContext c, OperatorClip clip) {
+	    debugOnly("clipping", clip.getClip());
 		c.getOutputDevice().pushClip(clip.getClip());
 	}
 	
 	private void setClip(RenderingContext c, OperatorSetClip setclip) {
+	    debugOnly("popping clip", null);
 		c.getOutputDevice().popClip();
 	}
 	
@@ -58,7 +65,7 @@ public class DisplayListPainter {
 				BlockBox box = (BlockBox) dli;
 				
 				updateTableHeaderFooterPosition(c, box);
-
+				debugOnly("painting bg", box);
 				box.paintBackground(c);
 				box.paintBorder(c);
 
@@ -101,9 +108,17 @@ public class DisplayListPainter {
 			} else if (dli instanceof OperatorSetClip) {
 				OperatorSetClip setClip = (OperatorSetClip) dli;
 				setClip(c, setClip);
+			} else if (dli instanceof BlockBox) {
+			    // Inline blocks need to be painted as a layer.
+			    BlockBox bb = (BlockBox) dli;
+			    List<PageBox> pageBoxes = bb.getContainingLayer().getPages();
+			    DisplayListCollector dlCollector = new DisplayListCollector(pageBoxes);
+			    DisplayListPageContainer pageInstructions = dlCollector.collectInlineBlock(c, bb, EnumSet.noneOf(CollectFlags.class));
+			
+			    paint(c, pageInstructions);
 			} else {
-				InlinePaintable paintable = (InlinePaintable) dli;
-				paintable.paintInline(c);
+                InlinePaintable paintable = (InlinePaintable) dli;
+                paintable.paintInline(c);
 			}
 		}
 	}
@@ -138,35 +153,34 @@ public class DisplayListPainter {
         c.getOutputDevice().paintReplacedElement(c, replaced);
     }
     
-    private void pushTransform(RenderingContext c, Box master) {
-    	AffineTransform transform = TransformCreator.createPageCoordinatesTranform(c, master, c.getPage());
+    private void pushTransform(RenderingContext c, Box master, int shadowPage) {
+    	AffineTransform transform = TransformCreator.createPageCoordinatesTranform(c, master, c.getPage(), shadowPage);
+    	debugOnly("pushing transform", transform);
     	c.getOutputDevice().pushTransformLayer(transform);
     }
     
     private void popTransform(RenderingContext c, Box master) {
+        debugOnly("popping transform", null);
     	c.getOutputDevice().popTransformLayer();
     }
     
-    private void pushClips(RenderingContext c, PaintPushClipLayer clips) {
-    	for (Box clipBox : clips.getClipBoxes()) {
-    		Shape clip = clipBox.getChildrenClipEdge(c);
-    		c.getOutputDevice().pushClip(clip);
-    	}
+    private void pushClipRect(RenderingContext c, Rectangle clip) {
+        debugOnly("pushing clip rect", clip);
+        c.getOutputDevice().pushClip(clip);
     }
     
-    private void popClips(RenderingContext c, PaintPopClipLayer clips) {
-    	for (int i = 0; i < clips.getClipBoxes().size(); i++) {
-    		c.getOutputDevice().popClip();
-    	}
+    private void popClipRect(RenderingContext c) {
+        debugOnly("popping clip rect", null);
+        c.getOutputDevice().popClip();
     }
     
     private void paintFixed(RenderingContext c, Layer layer) {
     	layer.positionFixedLayer(c);
 
     	List<PageBox> pages = layer.getPages();
-        SinglePageDisplayListCollector dlCollector = new SinglePageDisplayListCollector(pages.get(c.getPageNo()), c.getPageNo());
-        DisplayListContainer dlPages = dlCollector.collectFixed(c, layer); 
-        paint(c, dlPages.getPageInstructions(0));
+    	DisplayListCollector collector = new DisplayListCollector(pages);
+        DisplayListContainer dlPages = collector.collectFixed(c, layer); 
+        paint(c, dlPages.getPageInstructions(c.getPageNo()));
     }
 
 	public void paint(RenderingContext c, DisplayListPageContainer pageOperations) {
@@ -192,6 +206,7 @@ public class DisplayListPainter {
 
 				PaintBackgroundAndBorders dlo = (PaintBackgroundAndBorders) op;
 				paintBackgroundAndBorders(c, dlo.getBlocks(), dlo.getCollapedTableBorders());
+				//System.out.println("painting blocks: " + dlo.getBlocks());
 
 			} else if (op instanceof PaintListMarkers) {
 
@@ -202,6 +217,7 @@ public class DisplayListPainter {
 
 				PaintInlineContent dlo = (PaintInlineContent) op;
 				paintInlineContent(c, dlo.getInlines());
+				//System.out.println("painting inlines: " + dlo.getInlines());
 
 			} else if (op instanceof PaintReplacedElements) {
 
@@ -211,28 +227,27 @@ public class DisplayListPainter {
 			} else if (op instanceof PaintPushTransformLayer) {
 				
 				PaintPushTransformLayer dlo = (PaintPushTransformLayer) op;
-				pushTransform(c, dlo.getMaster());
+				pushTransform(c, dlo.getMaster(), dlo.getShadowPageNumber());
 				
 			} else if (op instanceof PaintPopTransformLayer) {
 				
 				PaintPopTransformLayer dlo = (PaintPopTransformLayer) op;
 				popTransform(c, dlo.getMaster());
 				
-			} else if (op instanceof PaintPushClipLayer) {
-				
-				PaintPushClipLayer dlo = (PaintPushClipLayer) op;
-				pushClips(c, dlo);
-				
-			} else if (op instanceof PaintPopClipLayer) {
-				
-				PaintPopClipLayer dlo = (PaintPopClipLayer) op;
-				popClips(c, dlo);
-				
 			} else if (op instanceof PaintFixedLayer) {
 				
 				PaintFixedLayer dlo = (PaintFixedLayer) op;
 				paintFixed(c, dlo.getLayer());
 				
+			} else if (op instanceof PaintPushClipRect) {
+			    
+			    PaintPushClipRect dlo = (PaintPushClipRect) op;
+			    pushClipRect(c, dlo.getClipBox());
+			    
+			} else if (op instanceof PaintPopClipRect) {
+			    
+			    popClipRect(c);
+			    
 			}
 		}
 	}
